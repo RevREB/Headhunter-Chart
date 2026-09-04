@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "headhunter.core.fullname" . }}
+  labels:
+    {{- include "headhunter.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  replicas: {{ .Values.core.replicas }}
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      {{- include "headhunter.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+  template:
+    metadata:
+      labels:
+        {{- include "headhunter.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: core
+    spec:
+      serviceAccountName: {{ include "headhunter.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: core
+          image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
+          imagePullPolicy: {{ .Values.core.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.core.port }}
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.core.port }}"
+            - name: SCRAPER_CATALOG_PATH
+              value: /etc/headhunter/catalog.yaml
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secretName }}
+                  key: {{ .Values.postgres.urlKey }}
+            {{- with .Values.core.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: catalog
+              mountPath: /etc/headhunter
+              readOnly: true
+          resources:
+            {{- toYaml .Values.core.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+      volumes:
+        - name: catalog
+          configMap:
+            name: {{ include "headhunter.fullname" . }}-scraper-catalog

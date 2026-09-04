@@ -1,0 +1,18 @@
+{{- if .Values.webmcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headhunter.webmcp.fullname" . }}
+  labels:
+    {{- include "headhunter.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webmcp
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "headhunter.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: webmcp
+  ports:
+    - name: http
+      port: {{ .Values.webmcp.port }}
+      targetPort: http
+{{- end }}

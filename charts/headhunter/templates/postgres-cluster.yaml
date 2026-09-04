@@ -1,0 +1,19 @@
+{{- if .Values.postgres.managed }}
+# Requires the CloudNativePG operator. Generates a secret
+# "{{ include "headhunter.fullname" . }}-db-app" with the connection URI under
+# key "uri" — set postgres.secretName to that name and postgres.urlKey to "uri".
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "headhunter.fullname" . }}-db
+  labels:
+    {{- include "headhunter.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.managedSpec.instances }}
+  storage:
+    size: {{ .Values.postgres.managedSpec.storageSize }}
+  bootstrap:
+    initdb:
+      database: headhunter
+      owner: headhunter
+{{- end }}

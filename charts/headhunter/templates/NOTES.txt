@@ -1,0 +1,20 @@
+Headhunter {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Core API:   http://{{ include "headhunter.core.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.core.port }}
+{{- if .Values.webmcp.enabled }}
+WebMCP:     http://{{ include "headhunter.webmcp.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.webmcp.port }}
+{{- if .Values.webmcp.ingress.enabled }}
+Dashboard:  http://{{ .Values.webmcp.ingress.host }}/
+{{- else }}
+  Port-forward the dashboard:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "headhunter.webmcp.fullname" . }} {{ .Values.webmcp.port }}:{{ .Values.webmcp.port }}
+{{- end }}
+{{- end }}
+
+{{- if not .Values.postgres.managed }}
+
+NOTE: Core expects a Postgres URL in secret "{{ .Values.postgres.secretName }}" (key "{{ .Values.postgres.urlKey }}").
+Create it before Core will start, e.g.:
+  kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.postgres.secretName }} \
+    --from-literal={{ .Values.postgres.urlKey }}='postgres://user:pass@host:5432/headhunter'
+{{- end }}

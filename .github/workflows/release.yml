@@ -1,0 +1,27 @@
+name: release
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Lint
+        run: helm lint charts/headhunter
+      - name: Template (render sanity)
+        run: helm template hh charts/headhunter > /dev/null
+      - name: Package & push OCI (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          helm package charts/headhunter -d dist
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          helm push dist/headhunter-*.tgz oci://ghcr.io/revreb/charts

@@ -1,0 +1,44 @@
+{{- if .Values.webmcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "headhunter.webmcp.fullname" . }}
+  labels:
+    {{- include "headhunter.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webmcp
+spec:
+  replicas: {{ .Values.webmcp.replicas }}
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      {{- include "headhunter.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webmcp
+  template:
+    metadata:
+      labels:
+        {{- include "headhunter.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: webmcp
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: webmcp
+          image: "{{ .Values.webmcp.image.repository }}:{{ .Values.webmcp.image.tag }}"
+          imagePullPolicy: {{ .Values.webmcp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.webmcp.port }}
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.webmcp.port }}"
+            - name: CORE_URL
+              value: "http://{{ include "headhunter.core.fullname" . }}:{{ .Values.core.port }}"
+          resources:
+            {{- toYaml .Values.webmcp.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+{{- end }}

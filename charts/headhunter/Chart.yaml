@@ -1,0 +1,14 @@
+apiVersion: v2
+name: headhunter
+description: Self-hosted automated job-search platform — Core engine + WebMCP + on-demand ATS scrapers.
+type: application
+version: 0.1.0
+appVersion: "build-1"
+home: https://github.com/RevREB/Headhunter-Core
+sources:
+  - https://github.com/RevREB/Headhunter-Core
+  - https://github.com/RevREB/Headhunter-Scrapers
+  - https://github.com/RevREB/Headhunter-WebMCP
+maintainers:
+  - name: RevREB
+keywords: [job-search, ats, scraper, mcp, postgres]

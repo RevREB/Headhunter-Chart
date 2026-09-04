@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headhunter.fullname" . }}-scraper-catalog
+  labels:
+    {{- include "headhunter.labels" . | nindent 4 }}
+data:
+  catalog.yaml: |
+    {{- .Values.scrapers.catalog | nindent 4 }}

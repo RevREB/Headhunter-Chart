@@ -1,0 +1,77 @@
+# Headhunter umbrella chart — deploys Core + WebMCP + the scraper catalog + Job RBAC.
+
+nameOverride: ""
+fullnameOverride: ""
+
+core:
+  image:
+    repository: ghcr.io/revreb/headhunter-core
+    tag: build-1
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 8080
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+  env: []              # extra env vars, list of {name,value}
+
+webmcp:
+  enabled: true
+  image:
+    repository: ghcr.io/revreb/headhunter-webmcp
+    tag: build-1
+    pullPolicy: IfNotPresent
+  replicas: 1
+  port: 3000
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+  ingress:
+    enabled: false
+    className: ""
+    host: headhunter.mininet
+    annotations: {}
+
+scrapers:
+  # The git-declared scraper catalog, rendered into a ConfigMap that Core reads.
+  # Keep this in sync with RevREB/Headhunter-Scrapers catalog/catalog.yaml.
+  catalog: |
+    scrapers:
+      - ats: greenhouse
+        tier: 1
+        manifest: tier1/greenhouse.yaml
+        contractVersion: "1.0.0"
+
+serviceAccount:
+  create: true
+  name: ""             # defaults to the release fullname
+
+rbac:
+  # Core's operator-lite launches one Job per ATS; grant Job lifecycle in-namespace.
+  create: true
+
+networkPolicy:
+  enabled: false       # opt-in; restricts Core egress to DNS + DB + HTTPS
+
+postgres:
+  # managed=true renders a CNPG Cluster (requires the CNPG operator installed).
+  # It generates a secret "<fullname>-db-app" with the URI under key "uri" — point
+  # secretName/urlKey at that. Otherwise Core uses an external DB via the secret below.
+  managed: false
+  managedSpec:
+    instances: 1
+    storageSize: 5Gi
+  secretName: headhunter-db
+  urlKey: url
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
