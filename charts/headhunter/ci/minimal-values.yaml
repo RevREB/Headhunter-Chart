@@ -1,0 +1,20 @@
+# CI scenario: Core only, against an externally managed ServiceAccount and DB.
+# Nothing optional is rendered — this catches templates that assume a
+# ServiceAccount/Role/WebMCP object the release did not create.
+webmcp:
+  enabled: false
+
+rbac:
+  create: false
+
+serviceAccount:
+  create: false
+  name: headhunter-external
+
+networkPolicy:
+  enabled: false
+
+postgres:
+  managed: false
+  secretName: headhunter-db
+  urlKey: url

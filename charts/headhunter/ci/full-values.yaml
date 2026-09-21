@@ -1,0 +1,37 @@
+# CI scenario: every optional piece turned on.
+# Renders WebMCP + Ingress + NetworkPolicy + RBAC + a managed CNPG Cluster.
+fullnameOverride: hh
+
+core:
+  replicas: 2
+  env:
+    - name: LOG_LEVEL
+      value: debug
+
+webmcp:
+  enabled: true
+  ingress:
+    enabled: true
+    className: traefik
+    host: headhunter.example.test
+    annotations:
+      kubernetes.io/ingress.class: traefik
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+
+networkPolicy:
+  enabled: true
+
+postgres:
+  managed: true
+  managedSpec:
+    instances: 3
+    storageSize: 20Gi
+  # CNPG emits "<fullname>-db-app" with the URI under key "uri" — this is the
+  # documented wiring the chart README promises, and CI asserts it holds.
+  secretName: hh-db-app
+  urlKey: uri

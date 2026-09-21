@@ -59,10 +59,38 @@ spec:
     postgres: { secretName: headhunter-db }
 ```
 
+## CI
+
+`.github/workflows/test.yml` runs on every pull request and every push to
+`main`:
+
+- `helm lint --strict` against the default values and each `charts/headhunter/ci/*-values.yaml` scenario;
+- `helm template` for three scenarios — default, `full-values.yaml` (Ingress +
+  NetworkPolicy + managed CNPG), `minimal-values.yaml` (Core only, external
+  ServiceAccount and DB);
+- `kubeconform -strict` schema validation of every rendered object, including
+  the CNPG `Cluster` CRD (no schemas skipped);
+- `tests/assert_render.py` — cross-object invariants `helm lint` cannot see:
+  volumes resolve to ConfigMaps the release renders, `CORE_URL` points at a
+  real Service port, the Ingress backend exists, RoleBindings bind a rendered
+  ServiceAccount, every container keeps its CPU/memory requests, a pinned
+  (non-`latest`) image tag and the non-root/read-only/drop-ALL hardening, and
+  the embedded scraper catalog parses as YAML with the fields Core requires.
+
+It does **not** install the chart — there is no cluster in CI, so nothing here
+proves the images boot or that Core can reach Postgres.
+
+Run the same checks locally:
+
+```sh
+helm template hh charts/headhunter -f charts/headhunter/ci/full-values.yaml \
+  | python3 tests/assert_render.py - --expect-db-secret hh-db-app
+```
+
 ## Publishing
 
-`helm lint` + `helm template` run on every push; tagging `vX.Y.Z` packages and
-pushes the chart to `oci://ghcr.io/revreb/charts/headhunter`.
+Tagging `vX.Y.Z` packages and pushes the chart to
+`oci://ghcr.io/revreb/charts/headhunter`.
 
 ## License
 

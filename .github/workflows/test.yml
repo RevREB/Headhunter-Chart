@@ -1,0 +1,177 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Flux's helm-controller is Helm 3; test the chart with the same major the
+  # cluster actually renders it with, and the same pin the release job uses.
+  HELM_VERSION: v3.16.3
+  KUBECONFORM_VERSION: v0.8.0
+  # Schema set to validate the rendered objects against.
+  KUBERNETES_VERSION: "1.31.0"
+
+jobs:
+  lint:
+    name: helm lint + YAML sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Every YAML file in the repo parses
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          bad = []
+          for p in sorted(pathlib.Path('.').rglob('*.y*ml')):
+              if '.git/' in str(p):
+                  continue
+              text = p.read_text()
+              # chart templates are Go templates, not YAML — helm lint covers them
+              if p.parts[:1] == ('charts',) and 'templates' in p.parts:
+                  continue
+              try:
+                  list(yaml.safe_load_all(text))
+              except yaml.YAMLError as e:
+                  bad.append(f"{p}: {e}")
+              else:
+                  print(f"ok  {p}")
+          if bad:
+              print("\nunparseable YAML:", *bad, sep="\n  - ", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Chart.yaml metadata is well formed
+        run: |
+          python3 - <<'PY'
+          import re, sys, yaml
+          c = yaml.safe_load(open('charts/headhunter/Chart.yaml'))
+          errs = []
+          if c.get('apiVersion') != 'v2':
+              errs.append(f"apiVersion must be v2, got {c.get('apiVersion')!r}")
+          if not re.match(r'^\d+\.\d+\.\d+', str(c.get('version', ''))):
+              errs.append(f"version {c.get('version')!r} is not semver")
+          if not str(c.get('appVersion', '')).strip():
+              errs.append("appVersion is empty")
+          if c.get('name') != 'headhunter':
+              errs.append(f"name {c.get('name')!r} != headhunter (the OCI push path assumes it)")
+          if errs:
+              print(*errs, sep="\n", file=sys.stderr); sys.exit(1)
+          print(f"Chart.yaml ok: {c['name']} {c['version']} (app {c['appVersion']})")
+          PY
+
+      - name: helm lint (default values, strict)
+        run: helm lint charts/headhunter --strict
+
+      - name: helm lint (every ci/ values scenario, strict)
+        run: |
+          for f in charts/headhunter/ci/*-values.yaml; do
+            echo "::group::helm lint -f $f"
+            helm lint charts/headhunter --strict -f "$f"
+            echo "::endgroup::"
+          done
+
+  render:
+    name: render ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Stock install: Core + WebMCP + catalog + Job RBAC, external DB.
+          - scenario: default
+            values: ""
+            require: Deployment,Service,ConfigMap,ServiceAccount,Role,RoleBinding
+            forbid: Ingress,NetworkPolicy,Cluster
+            db_secret: headhunter-db
+          # Everything on: Ingress, NetworkPolicy, managed CNPG Postgres.
+          - scenario: full
+            values: charts/headhunter/ci/full-values.yaml
+            require: Deployment,Service,ConfigMap,ServiceAccount,Role,RoleBinding,Ingress,NetworkPolicy,Cluster
+            forbid: ""
+            db_secret: hh-db-app
+          # Core only, against a ServiceAccount and DB the release does not own.
+          - scenario: minimal
+            values: charts/headhunter/ci/minimal-values.yaml
+            require: Deployment,Service,ConfigMap
+            forbid: Ingress,NetworkPolicy,Cluster,Role,RoleBinding,ServiceAccount
+            db_secret: headhunter-db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform ${{ env.KUBECONFORM_VERSION }}
+        run: |
+          mkdir -p "$HOME/bin"
+          curl -fsSL \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C "$HOME/bin" kubeconform
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/kubeconform" -v
+
+      - name: helm template
+        run: |
+          mkdir -p rendered
+          args=(hh charts/headhunter --namespace career-ops)
+          if [ -n "${{ matrix.values }}" ]; then
+            args+=(-f "${{ matrix.values }}")
+          fi
+          helm template "${args[@]}" > "rendered/${{ matrix.scenario }}.yaml"
+          grep -c '^kind:' "rendered/${{ matrix.scenario }}.yaml" | xargs echo "rendered objects:"
+
+      - name: Kubernetes schema validation (kubeconform, strict)
+        # Built-in kinds validate against the ${{ env.KUBERNETES_VERSION }} schemas;
+        # the CNPG Cluster CRD validates against the datreeio CRDs-catalog schema.
+        # No -ignore-missing-schemas: an unvalidatable object fails the job.
+        run: |
+          kubeconform \
+            -strict \
+            -summary \
+            -kubernetes-version "${KUBERNETES_VERSION}" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            "rendered/${{ matrix.scenario }}.yaml"
+
+      - name: Chart invariants (cross-object wiring, hardening, catalog shape)
+        run: |
+          python3 tests/assert_render.py "rendered/${{ matrix.scenario }}.yaml" \
+            --require-kinds "${{ matrix.require }}" \
+            --forbid-kinds "${{ matrix.forbid }}" \
+            --expect-db-secret "${{ matrix.db_secret }}"
+
+      - name: Upload rendered manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-${{ matrix.scenario }}
+          path: rendered/
+          if-no-files-found: error
+
+  package:
+    name: helm package
+    runs-on: ubuntu-latest
+    needs: [lint, render]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      # Proves the tag-time release job will not fail at the packaging step.
+      - run: helm package charts/headhunter -d dist && ls -l dist
